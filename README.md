@@ -1,9 +1,31 @@
-Cloud-Native ML-IDS: Behavioral Packet Sniffing & Firewall SecurityResearch Paper accepted at ESCI IEEE 2026.This project implements a distributed, lightweight Intrusion Detection System (IDS) specifically optimized for Kubernetes environments. By integrating real-time packet sniffing with a Random Forest classification engine, the system moves beyond traditional static firewalls to identify zero-day threats through behavioral analysis.🏗️ Architecture & Directory StructureThe system is designed as a distributed sensor network feeding a centralized analysis backend.Plaintextcloud-packet-sniffer/
-├── sniffer-agent/     # The "Sentinel": Python/Scapy agent (DaemonSet)
-├── backend-api/       # The "Commander": FastAPI asynchronous alert aggregator
-├── frontend-dashboard/# React.js SPA for real-time threat visualization
-├── k8s/               # Kubernetes manifests (DaemonSets, Services, ConfigMaps)
-├── random_forest_model.pkl # Serialized ML model (98.4% Accuracy)
-└── docker-compose.yml # Local orchestration for development and testing
-🚀 Key FeaturesNode-Level Visibility: Uses the DaemonSet pattern to ensure 100% coverage across all cluster nodes, monitoring "East-West" traffic often missed by perimeter firewalls.Intelligent Detection: Extracts 5-tuple flow statistics (Duration, IAT, TCP Flags, Payload size) to detect complex attacks.Real-time Reaction: Automatically triggers iptables rules to block source IPs or specific flows when the malicious probability threshold (0.75) is exceeded.High Efficiency: Theoretical $O(1)$ space and inference complexity, maintaining low resource overhead during production.📊 Empirical Performance ResultsThe system was validated using the CIC-IDS-2017 dataset with the following metrics:MetricResultDetection Accuracy98.4%Precision / Recall98.2% / 98.6%False Positive Rate< 0.5%Detection Latency (TTD)< 200ms at 1,000 concurrent flows🛠️ Tech StackLanguages: Python 3.9 (Inference & Sniffing), JavaScript (React), C (Iptables interaction).Libraries: Scapy (Packet Capture), Scikit-Learn (Random Forest), FastAPI (Async API).Orchestration: Kubernetes, Docker Compose.⚙️ Installation & TestingModel Preparation: Ensure random_forest_model.pkl is in the root directory.Local Deployment:Bashdocker-compose up --build
-Traffic Simulation: Use the included generate_traffic.bat or tcpreplay to inject malicious PCAP files into the test network.🧠 Future WorkeBPF Integration: Transitioning the packet capture layer to eBPF for 10x throughput improvement.Federated Learning: Implementing weight-sharing between agents to improve privacy.
+# Cloud-Native ML-IDS: Behavioral Packet Sniffing & Firewall Security
+
+[cite_start]**Research Paper accepted at ESCI IEEE 2026**.
+
+[cite_start]This project implements a distributed, lightweight Intrusion Detection System (IDS) specifically optimized for Kubernetes environments. [cite_start]By integrating real-time packet sniffing with a Random Forest classification engine, the system identifies zero-day threats through behavioral analysis.
+
+## 🏗️ Architecture & Directory Structure
+[cite_start]The system is designed as a distributed sensor network feeding a centralized analysis backend.
+
+* [cite_start]**sniffer-agent/**: The "Sentinel" Python/Scapy agent (DaemonSet).
+* [cite_start]**backend-api/**: The "Commander" FastAPI asynchronous alert aggregator.
+* [cite_start]**frontend-dashboard/**: React.js SPA for real-time threat visualization.
+* [cite_start]**k8s/**: Kubernetes manifests (DaemonSets, Services).
+
+## 🚀 Key Features
+* [cite_start]**Node-Level Visibility**: Uses the DaemonSet pattern to ensure 100% coverage.
+* [cite_start]**Intelligent Detection**: Extracts 5-tuple flow statistics to detect complex attacks.
+* [cite_start]**Real-time Reaction**: Automatically triggers iptables rules when the malicious threshold (0.75) is exceeded.
+* [cite_start]**High Efficiency**: Theoretical O(1) space and inference complexity.
+
+## 📊 Empirical Performance Results
+| Metric | Result |
+| :--- | :--- |
+| Detection Accuracy | [cite_start]98.4%  |
+| Precision / Recall | [cite_start]98.2% / 98.6%  |
+| False Positive Rate | [cite_start]< 0.5%  |
+| Detection Latency (TTD) | [cite_start]< 200ms  |
+
+## ⚙️ Installation & Testing
+```bash
+docker-compose up --build
