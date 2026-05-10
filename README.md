@@ -2,30 +2,26 @@
 
 **Research Paper accepted at ESCI IEEE 2026**.
 
-[cite_start]This project implements a distributed, lightweight Intrusion Detection System (IDS) specifically optimized for Kubernetes environments. [cite_start]By integrating real-time packet sniffing with a Random Forest classification engine, the system identifies zero-day threats through behavioral analysis.
+This project implements a distributed, lightweight Intrusion Detection System (IDS) optimized for Kubernetes environments. It uses a **Random Forest** engine to identify threats based on behavioral anomalies.
 
-## 🏗️ Architecture & Directory Structure
-[cite_start]The system is designed as a distributed sensor network feeding a centralized analysis backend.
+## 🏗️ Architecture
+* **sniffer-agent/**: The "Sentinel" Python/Scapy agent (DaemonSet).
+* **backend-api/**: The "Commander" FastAPI asynchronous alert aggregator.
+* **frontend-dashboard/**: React.js SPA for real-time threat visualization.
+* **k8s/**: Kubernetes manifests (DaemonSets, Services).
 
-* [cite_start]**sniffer-agent/**: The "Sentinel" Python/Scapy agent (DaemonSet).
-* [cite_start]**backend-api/**: The "Commander" FastAPI asynchronous alert aggregator.
-* [cite_start]**frontend-dashboard/**: React.js SPA for real-time threat visualization.
-* [cite_start]**k8s/**: Kubernetes manifests (DaemonSets, Services).
-
-## 🚀 Key Features
-* [cite_start]**Node-Level Visibility**: Uses the DaemonSet pattern to ensure 100% coverage.
-* [cite_start]**Intelligent Detection**: Extracts 5-tuple flow statistics to detect complex attacks.
-* [cite_start]**Real-time Reaction**: Automatically triggers iptables rules when the malicious threshold (0.75) is exceeded.
-* [cite_start]**High Efficiency**: Theoretical O(1) space and inference complexity.
-
-## 📊 Empirical Performance Results
+## 📊 Performance Metrics
 | Metric | Result |
 | :--- | :--- |
-| Detection Accuracy | [cite_start]98.4%  |
-| Precision / Recall | [cite_start]98.2% / 98.6%  |
-| False Positive Rate | [cite_start]< 0.5%  |
-| Detection Latency (TTD) | [cite_start]< 200ms  |
+| **Detection Accuracy** | 98.4% |
+| **Precision / Recall** | 98.2% / 98.6% |
+| **Detection Latency (TTD)** | < 200ms at 1,000 flows |
 
-## ⚙️ Installation & Testing
+## 🚀 Key Features
+* **Node-Level Visibility**: Uses the DaemonSet pattern for 100% coverage.
+* **Intelligent Detection**: Extracts 5-tuple flow statistics (IAT, SYN/ACK ratios).
+* **Real-time Reaction**: Automatically triggers `iptables` to block malicious IPs.
+
+## ⚙️ Installation
 ```bash
 docker-compose up --build
