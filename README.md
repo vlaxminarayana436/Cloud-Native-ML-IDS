@@ -1,6 +1,6 @@
 # Cloud-Native ML-IDS: Behavioral Packet Sniffing & Firewall Security
 
-[cite_start]**Research Paper accepted at ESCI IEEE 2026**.
+**Research Paper accepted at ESCI IEEE 2026**.
 
 [cite_start]This project implements a distributed, lightweight Intrusion Detection System (IDS) specifically optimized for Kubernetes environments. [cite_start]By integrating real-time packet sniffing with a Random Forest classification engine, the system identifies zero-day threats through behavioral analysis.
 
