@@ -1,0 +1,17 @@
+# Use a Python image that includes necessary network tools
+FROM python:3.9-slim
+
+# Install system dependencies for network sniffing (libpcap)
+RUN apt-get update && \
+    apt-get install -y libpcap-dev gcc && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python packages
+WORKDIR /app
+RUN pip install scapy requests
+
+# Copy the sniffer script
+COPY sniffer.py /app/
+
+# The CMD to run the sniffer
+CMD ["python", "sniffer.py"]

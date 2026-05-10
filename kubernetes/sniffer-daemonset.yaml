@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sniffer-daemonset
+spec:
+  selector:
+    matchLabels:
+      app: sniffer-agent
+  template:
+    metadata:
+      labels:
+        app: sniffer-agent
+    spec:
+      # Required for sniffer to access the host network interface
+      hostNetwork: true
+      containers:
+      - name: sniffer-agent
+        # Use the Docker image built in the previous step
+        image: your-docker-registry/sniffer-agent:latest 
+        securityContext:
+          # Required for raw socket access (live sniffing)
+          privileged: true 
+          capabilities:
+            add: ["NET_ADMIN", "NET_RAW"]
+        env:
+        - name: BACKEND_URL
+          # Points to the API service running in the cluster
+          value: "http://ids-backend-service:8000/api/v1/packets/process"
+      # Tolerations and NodeSelectors would be added here to control placement

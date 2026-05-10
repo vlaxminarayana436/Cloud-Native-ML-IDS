@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sniffer-agent-daemonset
+  labels:
+    app: sniffer-agent
+spec:
+  selector:
+    matchLabels:
+      app: sniffer-agent
+  template:
+    metadata:
+      labels:
+        app: sniffer-agent
+    spec:
+      hostNetwork: true # Allows the container to see the node's network interfaces
+      containers:
+      - name: sniffer
+        # REPLACE with your actual image path
+        image: your-docker-hub-user/sniffer-agent:latest
+        
+        # Security settings required for live packet capture and firewall interaction
+        securityContext:
+          privileged: true
+          capabilities:
+            add: ["NET_ADMIN", "NET_RAW"]
+        
+        env:
+        - name: BACKEND_URL
+          # Targets the internal Kubernetes service name for the API backend
+          value: "http://backend-api:8000/api/v1/packets/process"

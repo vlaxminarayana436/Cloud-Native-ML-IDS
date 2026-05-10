@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # 1. API Backend Service (FastAPI + ML)
+  backend-api:
+    build:
+      context: ./backend-api
+      dockerfile: Dockerfile.api
+    container_name: ids_backend
+    restart: always 
+    ports:
+      - "8000:8000" # Expose API port
+    volumes:
+      # Mount the entire folder to ensure the model file is accessible (even if DB is /tmp)
+      - ./backend-api:/app 
+      
+    # CRITICAL FOR FIREWALL: Allows container to execute privileged iptables commands
+    cap_add:
+      - NET_ADMIN
+
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 
+
+  # 2. Packet Sniffer Agent (Scapy)
+  sniffer-agent:
+    build:
+      context: ./sniffer-agent
+      dockerfile: Dockerfile.sniffer
+    container_name: sniffer_agent
+    restart: always
+    depends_on:
+      - backend-api
+      
+    # Inject a special environment variable for Sniffer Agent to use
+    environment:
+      # If LIVE SNIFFING is enabled (host mode), the sniffer MUST use the host IP (127.0.0.1)
+      # If using default bridge network, it falls back to the service name (backend-api)
+      - BACKEND_API_HOST=backend-api
+      
+    # --- LIVE SNIFFING CONFIGURATION ---
+    # To enable the sniffer to capture real network traffic and interact with the host network:
+    # ⚠️ REQUIRES ROOT/SUDO when running 'docker compose up' ⚠️
+   # network_mode: "host" 
+   # privileged: true 
+    
+  # 3. Frontend Dashboard (React.js)
+  frontend-dashboard:
+    build:
+      context: ./frontend-dashboard
+    container_name: ids_dashboard
+    restart: always
+    environment:
+      # FIX: The React app runs in the browser, so it must use the host IP/port.
+      - REACT_APP_API_URL=http://localhost:8000
+    ports:
+      - "3000:80" # Map host port 3000 to Nginx's port 80 (frontend uses Nginx)
+    depends_on:
+      - backend-api
+    command: ["nginx", "-g", "daemon off;"]

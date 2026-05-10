@@ -1,0 +1,24 @@
+import matplotlib.pyplot as plt
+
+x = range(1, 6)
+y1 = [1, 4, 6, 8, 9]
+y2 = [2, 2, 7, 10, 12]
+y3 = [3.5, 0, 1.4, 6, 1]
+
+# Creating line plots
+#plt.plot(x, y1, label='y1')
+#plt.plot(x, y2, label='y2')
+#plt.plot(x, y3, label='y3')
+
+# Creating area plots
+plt.fill_between(x, y1, y2, color='yellow', alpha=0.5, label='Area between y1 and y2')
+plt.fill_between(x, y2, y3, color='red', alpha=0.3, label='Area between y2 and y3')
+
+# Adding labels and title
+plt.xlabel('X-axis')
+plt.ylabel('Y-axis')
+plt.title('Area Plot')
+
+# Adding a legend
+plt.legend()
+plt.show()

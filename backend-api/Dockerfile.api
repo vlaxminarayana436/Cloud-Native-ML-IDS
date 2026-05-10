@@ -1,0 +1,25 @@
+# Use a specific Python version for stability
+# FIX: Upgrade Python version to 3.11 to support scikit-learn==1.7.2
+FROM python:3.11-slim
+
+# Install network utilities for the firewall functionality (iptables)
+RUN apt-get update && apt-get install -y iptables && rm -rf /var/lib/apt/lists/*
+
+# Set environment to not buffer Python output
+ENV PYTHONUNBUFFERED 1
+
+# Set the working directory
+WORKDIR /app
+
+# Copy requirements file and install dependencies first for better caching
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application code
+COPY . /app/
+
+# Expose the port FastAPI will run on
+EXPOSE 8000
+
+# The CMD to run the FastAPI application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

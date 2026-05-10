@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ids-backend-deployment
+  labels:
+    app: ids-backend
+spec:
+  # Start with 2 replicas for high availability and load distribution
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ids-backend
+  template:
+    metadata:
+      labels:
+        app: ids-backend
+    spec:
+      containers:
+      - name: backend
+        # REPLACE with your actual image path
+        image: your-docker-hub-user/ids-backend:latest
+        ports:
+        - containerPort: 8000
+        # CRITICAL: Add NET_ADMIN capability for iptables firewall execution
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api  # Service name used by the sniffer (backend-api:8000)
+spec:
+  type: ClusterIP   # Internal service, not exposed externally
+  selector:
+    app: ids-backend
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000

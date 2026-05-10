@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ids-dashboard-deployment
+  labels:
+    app: ids-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ids-dashboard
+  template:
+    metadata:
+      labels:
+        app: ids-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        # REPLACE with your actual image path
+        image: your-docker-hub-user/ids-dashboard:latest
+        ports:
+        - containerPort: 80 # Nginx port
+        env:
+        # Use the internal service name for the API backend
+        - name: REACT_APP_API_URL
+          value: "http://backend-api:8000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ids-dashboard-service
+spec:
+  # Use LoadBalancer to get an external IP (if running on AWS, GCP, etc.)
+  type: LoadBalancer 
+  selector:
+    app: ids-dashboard
+  ports:
+    - protocol: TCP
+      port: 80      # The public service port
+      targetPort: 80 # The container port (Nginx)
