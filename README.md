@@ -1,4 +1,4 @@
-# Cloud-Based Network Packet Sniffer with Integrated ML and Firewall Security
+# Cloud-Based Network Packet Sniffer with Integrated Machine Learning and Firewall Security
 
 This is a **small educational implementation** of the research-paper idea. It
 keeps the main paper concepts but avoids production-level complexity:
