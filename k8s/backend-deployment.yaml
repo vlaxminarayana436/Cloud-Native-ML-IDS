@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ids-backend-deployment
+  name: ids-backend
   labels:
     app: ids-backend
 spec:
-  # Start with 2 replicas for high availability and load distribution
-  replicas: 2
+  # SQLite is used for the demo, so keep one replica. Use PostgreSQL before scaling.
+  replicas: 1
   selector:
     matchLabels:
       app: ids-backend
@@ -16,25 +16,47 @@ spec:
         app: ids-backend
     spec:
       containers:
-      - name: backend
-        # REPLACE with your actual image path
-        image: your-docker-hub-user/ids-backend:latest
-        ports:
-        - containerPort: 8000
-        # CRITICAL: Add NET_ADMIN capability for iptables firewall execution
-        securityContext:
-          capabilities:
-            add: ["NET_ADMIN"]
+        - name: backend
+          image: your-docker-hub-user/ids-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: DB_PATH
+              value: /data/security_events.db
+            - name: FIREWALL_MODE
+              value: ALERT_ONLY
+            - name: CORS_ORIGINS
+              value: "*"
+          volumeMounts:
+            - name: alert-data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: alert-data
+          emptyDir: {}
+          # Replace with a PVC or PostgreSQL in a real cluster.
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: backend-api  # Service name used by the sniffer (backend-api:8000)
+  name: backend-api
+  labels:
+    app: ids-backend
 spec:
-  type: ClusterIP   # Internal service, not exposed externally
+  type: ClusterIP
   selector:
     app: ids-backend
   ports:
-    - protocol: TCP
+    - name: http
       port: 8000
       targetPort: 8000

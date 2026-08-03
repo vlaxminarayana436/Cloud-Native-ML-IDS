@@ -1,5 +1,9 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 .env
-logs/*.txt
+data/
+logs/
+*.log
+frontend-dashboard/node_modules/
