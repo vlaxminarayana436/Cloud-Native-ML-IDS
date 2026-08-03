@@ -1,181 +1,239 @@
-import subprocess # Required for executing iptables commands
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware # Import CORS middleware
-from pydantic import BaseModel
-from joblib import load
-import sqlite3
+"""Simple Commander API for the cloud-based IDS project."""
+
+import json
 import os
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional
+
 import pandas as pd
-from typing import Union 
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from joblib import load
+from pydantic import BaseModel
 
-# --- Configuration ---
-MODEL_PATH = "random_forest_model.pkl"
-# Using /tmp for DB path to avoid container permission issues
-DB_PATH = "/tmp/security_events.db" 
-app = FastAPI()
 
-# --- CORS Middleware (CRITICAL FIX for Dashboard connection) ---
-# This allows the React Frontend (http://localhost:3000) to communicate with this API
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = Path(os.getenv("MODEL_PATH", str(BASE_DIR / "random_forest_model.joblib")))
+DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR.parent / "data" / "security_events.db")))
+FIREWALL_MODE = os.getenv("FIREWALL_MODE", "ALERT_ONLY").upper()
+
+FEATURE_NAMES = [
+    "flow_duration",
+    "packet_count",
+    "byte_count",
+    "iat_mean",
+    "average_packet_size",
+    "syn_count",
+    "ack_count",
+    "syn_ack_ratio",
+]
+
+app = FastAPI(title="Cloud Network IDS Commander", version="1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows all origins for local testing
-    allow_credentials=True,
-    allow_methods=["*"], 
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
-# --- Database Setup ---
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS event_logs (
-            id INTEGER PRIMARY KEY,
-            timestamp REAL,
-            src_ip TEXT,
-            dst_ip TEXT,
-            protocol TEXT,
-            length INTEGER,
-            src_port INTEGER,
-            dst_port INTEGER,
-            classification TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
 
-# --- Firewall Function (Requires NET_ADMIN capability in Docker Compose) ---
-def block_ip_firewall(ip_address: str):
-    """
-    Executes an iptables command to block the malicious IP.
-    """
-    try:
-        # Check if rule exists before adding (to prevent duplicates)
-        check = subprocess.run(
-            ["iptables", "-C", "INPUT", "-s", ip_address, "-j", "DROP"], 
-            stdout=subprocess.DEVNULL, 
-            stderr=subprocess.DEVNULL,
-            timeout=2
-        )
-        
-        if check.returncode != 0:
-            # Add the DROP rule to the INPUT chain
-            subprocess.run(
-                ["iptables", "-A", "INPUT", "-s", ip_address, "-j", "DROP"], 
-                check=True, 
-                timeout=2
-            )
-            print(f"🔥 FIREWALL: Successfully blocked IP {ip_address}")
-        else:
-            print(f"ℹ️ FIREWALL: IP {ip_address} is already blocked.")
-            
-    except subprocess.TimeoutExpired:
-         print(f"❌ FIREWALL ERROR: iptables command timed out for {ip_address}.")
-    except Exception as e:
-        # This will catch permissions errors if the container lacks NET_ADMIN
-        print(f"❌ FIREWALL ERROR: Could not block IP {ip_address}. Reason: {e}")
-
-
-# --- Model & State ---
-try:
-    # Load the pre-trained ML model
-    ml_model = load(MODEL_PATH)
-except FileNotFoundError:
-    print(f"ERROR: Model file {MODEL_PATH} not found. Run train_model.py first.")
-    ml_model = None
-
-# --- Pydantic Data Model ---
-class PacketData(BaseModel):
+class FlowData(BaseModel):
     timestamp: float
+    agent_id: str = "unknown"
     src_ip: str
     dst_ip: str
+    src_port: Optional[int] = None
+    dst_port: Optional[int] = None
     protocol: str
-    length: int
-    src_port: Union[int, None] = None 
-    dst_port: Union[int, None] = None
+    flow_duration: float
+    packet_count: int
+    byte_count: int
+    iat_mean: float
+    average_packet_size: float
+    syn_count: int
+    ack_count: int
+    syn_ack_ratio: float
 
-# --- Feature Engineering (Must match train_model.py) ---
-def featurize_data(data: PacketData):
-    # This function feeds data to the ML model for classification
-    protocol_map = {'TCP': 1, 'UDP': 2, 'ICMP': 3}
-    protocol_encoded = protocol_map.get(data.protocol.upper(), 0)
-    
-    # ML Logic: Set high entropy for small packets to guarantee anomaly detection.
-    # This ensures the model detects the "new pattern" (small packet/high entropy)
-    if data.length < 100:
-        port_entropy = 0.9  # High entropy signature
-    else:
-        port_entropy = 0.5 
-    
-    # Create the feature vector as a Pandas DataFrame row (required by scikit-learn)
-    features = pd.DataFrame({
-        'length': [data.length],
-        'protocol_encoded': [protocol_encoded],
-        'port_entropy': [port_entropy]
-    })
-    return features
 
-# --- Endpoints ---
+try:
+    artifact = load(MODEL_PATH)
+    ml_model = artifact["model"]
+    threshold = float(artifact.get("threshold", 0.75))
+    model_version = artifact.get("model_version", "unknown")
+except FileNotFoundError:
+    ml_model = None
+    threshold = 0.75
+    model_version = "unavailable"
+    print(f"Model not found at {MODEL_PATH}. Run train_model.py first.")
+
+
+def initialize_database():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    import sqlite3
+
+    with sqlite3.connect(DB_PATH) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL,
+                agent_id TEXT,
+                src_ip TEXT,
+                dst_ip TEXT,
+                src_port INTEGER,
+                dst_port INTEGER,
+                protocol TEXT,
+                classification TEXT,
+                confidence REAL,
+                action TEXT,
+                features TEXT
+            )
+            """
+        )
+        connection.commit()
+
+
+def save_event(data: FlowData, classification: str, confidence: float, action: str):
+    import sqlite3
+
+    with sqlite3.connect(DB_PATH) as connection:
+        connection.execute(
+            """
+            INSERT INTO events
+            (timestamp, agent_id, src_ip, dst_ip, src_port, dst_port, protocol,
+             classification, confidence, action, features)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data.timestamp,
+                data.agent_id,
+                data.src_ip,
+                data.dst_ip,
+                data.src_port,
+                data.dst_port,
+                data.protocol,
+                classification,
+                confidence,
+                action,
+                json.dumps(data.model_dump() if hasattr(data, "model_dump") else data.dict()),
+            ),
+        )
+        connection.commit()
+
+
+def block_ip(ip_address: str) -> str:
+    """Optionally add a local DROP rule. Alert-only is the safe default."""
+
+    if FIREWALL_MODE != "BLOCK_SOURCE_IP":
+        return "ALERT_ONLY"
+
+    try:
+        check = subprocess.run(
+            ["iptables", "-C", "INPUT", "-s", ip_address, "-j", "DROP"],
+            capture_output=True,
+            timeout=2,
+        )
+        if check.returncode != 0:
+            subprocess.run(
+                ["iptables", "-A", "INPUT", "-s", ip_address, "-j", "DROP"],
+                check=True,
+                capture_output=True,
+                timeout=2,
+            )
+        return "BLOCKED"
+    except Exception as error:
+        print(f"Firewall action failed: {error}")
+        return "BLOCK_FAILED"
+
+
 @app.on_event("startup")
-def startup_event():
-    init_db()
+def startup():
+    initialize_database()
 
-@app.post("/api/v1/packets/process")
-async def process_packet_data(data: PacketData):
-    if not ml_model:
-        raise HTTPException(status_code=503, detail="ML Model not loaded.")
-    
-    # --- CLASSIFICATION IS PURELY ML-DRIVEN (WITH CONFIDENCE CHECK) ---
-    
-    # 1. Feature Extraction
-    features = featurize_data(data)
-    
-    # 2. ML Prediction: Check probability for Malicious (Class 1)
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "model": model_version}
+
+
+@app.post("/api/v1/flows/process")
+def process_flow(data: FlowData):
+    if ml_model is None:
+        raise HTTPException(status_code=503, detail="Model is not loaded")
+
+    features = pd.DataFrame(
+        [[getattr(data, name) for name in FEATURE_NAMES]],
+        columns=FEATURE_NAMES,
+    )
     probabilities = ml_model.predict_proba(features)[0]
-    malicious_probability = probabilities[1] # Assumes Class 1 is Malicious
-    
-    # Set threshold to 50.1% to classify as Malicious for demonstration
-    if malicious_probability > 0.01: 
+    classes = list(getattr(ml_model, "classes_", [0, 1]))
+    malicious_index = classes.index(1) if 1 in classes else 0
+    confidence = float(probabilities[malicious_index])
+
+    if confidence >= threshold:
         classification = "Malicious"
+        action = block_ip(data.src_ip)
     else:
         classification = "Normal"
-    
-    # 3. Store Event Log
-    log_event(data, classification)
-    
-    # 4. Integrated Firewall Logic: Action based on ML result
-    if classification == "Malicious":
-        # The log explicitly states the detection is ML-driven
-        print(f"ALERT: Malicious traffic detected by ML ({malicious_probability:.2f} confidence) from {data.src_ip}. Blocking initiated.")
-        block_ip_firewall(data.src_ip) # Execute firewall block
-        
+        action = "ALLOWED"
 
-    # Return confidence score to user for transparency
-    return {"status": "processed", "classification": classification, "confidence": malicious_probability}
+    save_event(data, classification, confidence, action)
+    print(
+        f"{classification}: {data.src_ip} -> {data.dst_ip}; "
+        f"confidence={confidence:.3f}; action={action}"
+    )
+
+    return {
+        "status": "processed",
+        "classification": classification,
+        "confidence": confidence,
+        "threshold": threshold,
+        "action": action,
+    }
+
 
 @app.get("/api/v1/alerts")
-async def get_alerts():
-    # Fetch Malicious/Alerts from DB for the dashboard
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM event_logs WHERE classification = 'Malicious' ORDER BY timestamp DESC LIMIT 100")
-    alerts = cursor.fetchall()
-    conn.close()
-    
-    # Convert to a list of dicts for JSON serialization
-    columns = ["id", "timestamp", "src_ip", "dst_ip", "protocol", "length", "src_port", "dst_port", "classification"]
-    return [dict(zip(columns, alert)) for alert in alerts]
+def get_alerts(limit: int = 100) -> List[Dict]:
+    import sqlite3
 
-def log_event(data: PacketData, classification: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO event_logs VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (data.timestamp, data.src_ip, data.dst_ip, data.protocol, data.length, 
-         data.src_port, data.dst_port, classification)
-    )
-    conn.commit()
-    conn.close()
+    limit = max(1, min(limit, 500))
+    with sqlite3.connect(DB_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            "SELECT * FROM events WHERE classification = 'Malicious' "
+            "ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+@app.get("/api/v1/summary")
+def summary():
+    import sqlite3
+
+    with sqlite3.connect(DB_PATH) as connection:
+        total = connection.execute(
+            "SELECT COUNT(*) FROM events WHERE classification = 'Malicious'"
+        ).fetchone()[0]
+        blocked = connection.execute(
+            "SELECT COUNT(*) FROM events WHERE action = 'BLOCKED'"
+        ).fetchone()[0]
+        protocol_rows = connection.execute(
+            "SELECT protocol, COUNT(*) FROM events "
+            "WHERE classification = 'Malicious' GROUP BY protocol"
+        ).fetchall()
+
+    return {
+        "totalAlerts": total,
+        "blockedAlerts": blocked,
+        "protocols": {protocol: count for protocol, count in protocol_rows},
+    }
+
 
 if __name__ == "__main__":
-    init_db()
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
