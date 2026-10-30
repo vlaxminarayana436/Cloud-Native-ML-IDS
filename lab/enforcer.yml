@@ -1,0 +1,8 @@
+# Explicit opt-in overlay. Grants NET_ADMIN inside lab-target's shared network namespace.
+# Add this file only after reading docs/operations.md and reviewing the generated rules.
+services:
+  lab-sentinel:
+    cap_add: [NET_ADMIN]
+    environment:
+      ENFORCE_BLOCKLIST: ${LAB_ENFORCE_BLOCKLIST:-false}
+      ENFORCE_ACCESS_POLICY: ${LAB_ENFORCE_ACCESS_POLICY:-false}

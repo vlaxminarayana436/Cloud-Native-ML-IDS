@@ -2,37 +2,33 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ids-dashboard
-  labels:
-    app: ids-dashboard
 spec:
   replicas: 1
   selector:
-    matchLabels:
-      app: ids-dashboard
+    matchLabels: {app: ids-dashboard}
   template:
     metadata:
-      labels:
-        app: ids-dashboard
+      labels: {app: ids-dashboard}
     spec:
       containers:
         - name: dashboard
-          image: your-docker-hub-user/ids-dashboard:latest
+          image: cloud-native-ml-ids/dashboard:local
           imagePullPolicy: IfNotPresent
           ports:
-            - name: http
-              containerPort: 80
+            - {name: http, containerPort: 80}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 3
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ids-dashboard
-  labels:
-    app: ids-dashboard
 spec:
-  type: LoadBalancer
-  selector:
-    app: ids-dashboard
+  type: ClusterIP
+  selector: {app: ids-dashboard}
   ports:
-    - name: http
-      port: 80
-      targetPort: 80
+    - {name: http, port: 80, targetPort: http}

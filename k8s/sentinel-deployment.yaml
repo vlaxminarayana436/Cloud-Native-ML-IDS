@@ -1,0 +1,30 @@
+# Optional synthetic sensor, disabled until explicitly scaled up.
+# It does not capture node traffic or alter firewall rules.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-synthetic
+spec:
+  replicas: 0
+  selector:
+    matchLabels: {app: sentinel-synthetic}
+  template:
+    metadata:
+      labels: {app: sentinel-synthetic}
+    spec:
+      containers:
+        - name: sentinel
+          image: cloud-native-ml-ids/sentinel:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: AGENT_MODE, value: synthetic}
+            - {name: AGENT_ID, value: sentinel-synthetic-k8s}
+            - {name: COMMANDER_API_URL, value: "http://commander:8000/api/v1/flows/process"}
+            - {name: ENFORCE_BLOCKLIST, value: "false"}
+            - {name: ENFORCE_ACCESS_POLICY, value: "false"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}

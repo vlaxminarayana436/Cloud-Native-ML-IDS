@@ -7,3 +7,15 @@ data/
 logs/
 *.log
 frontend-dashboard/node_modules/
+
+# Local runtime state and generated dependencies for the upgraded app
+node_modules/
+dist/
+.pytest_cache/
+backend/data/
+backend/models/candidate*
+backend/models/previous*
+backend/models/.*.tmp
+*.pcap
+*.pcapng
+*.cap

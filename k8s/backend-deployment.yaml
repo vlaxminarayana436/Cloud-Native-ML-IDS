@@ -1,62 +1,52 @@
+# Demonstration only: one SQLite replica and ephemeral data. See docs/operations.md.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ids-backend
-  labels:
-    app: ids-backend
+  name: commander
 spec:
-  # SQLite is used for the demo, so keep one replica. Use PostgreSQL before scaling.
   replicas: 1
   selector:
-    matchLabels:
-      app: ids-backend
+    matchLabels: {app: commander}
   template:
     metadata:
-      labels:
-        app: ids-backend
+      labels: {app: commander}
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
       containers:
-        - name: backend
-          image: your-docker-hub-user/ids-backend:latest
+        - name: commander
+          image: cloud-native-ml-ids/commander:local
           imagePullPolicy: IfNotPresent
           ports:
-            - name: http
-              containerPort: 8000
-          securityContext:
-            capabilities:
-              add: ["NET_ADMIN"]
+            - {name: http, containerPort: 8000}
           env:
-            - name: DB_PATH
-              value: /data/security_events.db
-            - name: FIREWALL_MODE
-              value: ALERT_ONLY
-            - name: CORS_ORIGINS
-              value: "*"
-          volumeMounts:
-            - name: alert-data
-              mountPath: /data
+            - {name: DB_PATH, value: /data/security_events.db}
+            - {name: MODEL_DIR, value: /app/models}
+            - {name: FIREWALL_MODE, value: SIMULATE_BLOCK}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 3
-            periodSeconds: 5
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: events, mountPath: /data}
       volumes:
-        - name: alert-data
+        - name: events
           emptyDir: {}
-          # Replace with a PVC or PostgreSQL in a real cluster.
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: backend-api
-  labels:
-    app: ids-backend
+  name: commander
 spec:
   type: ClusterIP
-  selector:
-    app: ids-backend
+  selector: {app: commander}
   ports:
-    - name: http
-      port: 8000
-      targetPort: 8000
+    - {name: http, port: 8000, targetPort: http}

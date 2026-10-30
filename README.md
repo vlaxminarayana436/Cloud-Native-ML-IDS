@@ -1,310 +1,196 @@
 # Cloud-Based Network Packet Sniffer with Integrated Machine Learning and Firewall Security
 
-This is a **small educational implementation** of the research-paper idea. It
-keeps the main paper concepts but avoids production-level complexity:
+A local-first, cloud-native **network monitoring and analyst review prototype**. Cloud-Native ML-IDS combines flow collection, a hybrid machine-learning detector, policy evaluation and a responsive security console. It is designed to run on a student laptop without paid cloud services.
 
-- a Sentinel packet/flow agent;
-- simple 5-tuple flow statistics;
-- a Random Forest classifier;
-- a FastAPI Commander backend;
-- SQLite alert storage;
-- a React dashboard;
-- Docker Compose and a Kubernetes DaemonSet example.
+> **Safety and scope:** The default setup does not generate traffic and records simulated block entries; it does not drop packets. The model is trained on artificial data and is not validated for production. Live capture requires permission, and actual firewall enforcement is a separate, explicitly enabled, on-path Linux component. Do not use this prototype as your only security control.
 
-The default mode uses simulated flows so that it is safe and easy to run on a
-student laptop. Scapy live capture is available as an optional mode.
+## What it does
 
-## Simple architecture
+- **Collects flow summaries** from a synthetic Sentinel, an authorized live IPv4 capture interface, or an uploaded PCAP. The dashboard keeps those sources distinguishable.
+- **Applies two detection approaches:** a Random Forest for several synthetic known-pattern classes and an Isolation Forest for unusual flow characteristics. An anomaly is a signal for investigation, not proof of a zero-day attack.
+- **Separates policy and attack decisions.** Narrow trusted office/VPN networks and protected internal services can be monitored or evaluated for denial; trusted traffic is still inspected by ML. IP addresses are not employee identities.
+- **Supports analyst feedback.** Review anomaly candidates, approve source-scoped learned rules, train a candidate with feedback, inspect its evaluation, and activate or roll back the model.
+- **Records response entries** with source and eligibility information. An optional IPv4 enforcer can apply eligible entries or supported access-policy rules only when it is deliberately enabled and positioned on the traffic path.
+- **Provides a monitoring console** with source filters, event trends, alerts and CSV export, blocklist management, offline PCAP analysis, policy controls, and model health. Sidebar navigation smoothly scrolls the page to each section.
 
 ```text
-Sentinel agent
-(simulated or Scapy flow)
-        |
-        | HTTP POST flow data
-        v
-FastAPI Commander
-(Random Forest + SQLite + optional iptables)
-        |
-        | HTTP GET alerts
-        v
-React dashboard
+ Synthetic / live Sentinel ──┐
+                             ├──> Commander API ──> ML + policy ──> SQLite
+ Offline PCAP upload ────────┘           │                           │
+                                         ├──> Dashboard / CSV / WebSocket
+                                         └──> simulated decisions
+                                               │
+                         optional, separately enabled on-path IPv4 enforcer
 ```
 
-In Kubernetes, the Sentinel is represented by a DaemonSet, so one agent can run
-on each node. To keep this educational version easy to follow, the Sentinel
-extracts the flow summary and the Commander performs model prediction,
-logging, and the optional firewall action. The paper describes the same stages
-with more of the intelligence placed at the edge.
+The dashboard is **SIEM-adjacent** (centralized events, filters, export) and **SOC-adjacent** (review and feedback), but is not a full SIEM or SOC platform. It does **not** perform vulnerability scanning, CVE matching, incident management, identity authentication, or comprehensive threat correlation.
 
-## Files to learn first
+## Quick start with Docker Compose
 
-```text
-backend-api/main.py                    Backend API and prediction
-backend-api/train_model.py             Small model-training script
-backend-api/random_forest_model.joblib Saved Random Forest model
-sniffer-agent/sniffer.py               Flow generator and optional Scapy capture
-frontend-dashboard/src/components/Dashboard.js  Alert screen
-docker-compose.yml                     Local three-container setup
-k8s/                                   Kubernetes examples
-```
+Prerequisites: Docker Engine/Desktop with Compose, and enough free RAM for a Python model and three small containers. A GPU is not required. The default is intended to be usable on an 8 GB laptop; actual resource use varies.
 
-You do not need to understand every dependency or every Kubernetes setting to
-explain the project.
+The clone command below checks out `main`. When testing a preview branch, clone that branch instead with `git clone --branch <branch-name> https://github.com/vlaxminarayana436/Cloud-Native-ML-IDS.git`.
 
-## Run the project with Docker
-
-### Requirements
-
-- Docker Desktop or Docker Engine
-- Docker Compose
-- Ports `3000` and `8000` available
-
-From the repository root:
+For a smaller checkout that omits the retained legacy dependencies, add `--filter=blob:none --sparse` to the clone command, then run `git sparse-checkout set backend agent frontend docs k8s lab` from the cloned directory.
 
 ```bash
+git clone https://github.com/vlaxminarayana436/Cloud-Native-ML-IDS.git
+cd Cloud-Native-ML-IDS
+cp .env.example .env                 # Windows PowerShell: Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Open the dashboard:
+Open **http://127.0.0.1:3000**. The console starts without fabricated traffic; connect an authorized live Sentinel or upload a PCAP to add records. The API is available locally at **http://127.0.0.1:8000/docs**.
 
-```text
-http://localhost:3000
-```
-
-The Sentinel simulation sends one malicious-looking flow and one normal flow
-every three seconds. View the logs with:
+To generate labeled synthetic traffic intentionally, start the optional profile:
 
 ```bash
-docker compose logs -f sniffer-agent
+docker compose --profile synthetic up -d --build sentinel
 ```
 
-Useful API URLs:
+Stop with `Ctrl+C` and `docker compose --profile synthetic down`. Named volumes retain events and models; adding `-v` removes those volumes and their data.
 
-```text
-http://localhost:8000/health
-http://localhost:8000/api/v1/alerts
-http://localhost:8000/api/v1/summary
-```
-
-Stop the application with `Ctrl+C`, or run:
-
-```bash
-docker compose down
-```
-
-The default firewall mode is `ALERT_ONLY`, so the demo does not change your
-computer's firewall.
+Compose binds published ports to localhost and grants the default services no capture or firewall capabilities. The optional lab and Kubernetes manifests are examples, not a production deployment; they have not been runtime-verified in this environment.
 
 ## Run without Docker
 
-Create and activate an environment:
+Use Python **3.11**, Node.js **20 or 22**, and npm. Open the repository in three terminals.
+
+**Terminal 1 — Commander**
 
 ```bash
 python -m venv .venv
+# Windows PowerShell: .\.venv\Scripts\Activate.ps1
+# macOS / Linux:      source .venv/bin/activate
+python -m pip install -r backend/requirements.txt -r agent/requirements.txt
+cd backend
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Linux/macOS:
+**Terminal 2 — dashboard**
 
 ```bash
-source .venv/bin/activate
-```
-
-Windows PowerShell:
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-Install backend and agent packages:
-
-```bash
-pip install -r backend-api/requirements.txt
-pip install -r sniffer-agent/requirements.txt
-```
-
-### Terminal 1: backend
-
-```bash
-cd backend-api
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-### Terminal 2: Sentinel
-
-From the repository root:
-
-```bash
-python sniffer-agent/sniffer.py
-```
-
-### Terminal 3: frontend, optional
-
-```bash
-cd frontend-dashboard
+cd frontend
 npm ci
+npm run dev -- --host 127.0.0.1
 ```
 
-Linux/macOS:
+Open **http://127.0.0.1:5173**. The dev server proxies API and WebSocket requests to Commander; the browser does not need a separate backend URL.
+
+**Terminal 3 — optional synthetic Sentinel**
 
 ```bash
-REACT_APP_API_URL=http://127.0.0.1:8000 npm start
+# From the repository root; activate the same .venv first.
+cd agent
+python agent.py --mode synthetic
 ```
 
-Windows PowerShell:
+Stop each process with `Ctrl+C`. Native runs store the SQLite database in `backend/data/`. The `.env` file is read by Compose; for native runs, set environment variables in each relevant terminal. If `COMMANDER_API_KEY` is configured, set the same variable for Sentinel. The dashboard asks for the key only when a protected action needs it, then keeps it in the current tab session. The key protects mutations only; it is not a complete authentication solution.
 
-```powershell
-$env:REACT_APP_API_URL = "http://127.0.0.1:8000"
-npm start
-```
+## Using the console
 
-Then open `http://localhost:3000`.
+1. Choose **Synthetic**, **Live capture**, **Offline PCAP**, or **All sources** from the source selector. These are reported labels, not cryptographically verified provenance.
+2. Inspect the overview and alert feed. Counts refer to stored **flows**, not individual packets; the displayed model scores are uncalibrated and are not accuracy measurements. The dashboard CSV export contains the currently filtered rows among the latest 100 loaded alerts.
+3. Upload a `.pcap`, `.pcapng`, or `.cap` under **PCAP analysis**. Supported IPv4 TCP/UDP flows are analyzed offline and never create live block entries. Limits: 25 MiB, 200,000 packets and 5,000 distinct flows.
+4. Under **Access policy**, add authorized networks and protected services. A new installation starts with no configured scopes. Monitor mode records would-deny decisions. Deny mode records policy decisions; it does not itself install a firewall rule.
+5. Review anomaly candidates under **Adaptive learning**. Approval creates a source-scoped rule and feedback example; candidate training and activation are separate actions. A candidate's augmented feedback can overlap its evaluation split, so its metrics can be optimistic.
 
-## Retrain the model
+### Understanding dashboard percentages
 
-The model uses eight understandable flow features:
+- **Alert categories** show the rounded share of each category among recorded ML and policy-only alerts for the selected source. Only the three largest categories are displayed, so their shares need not add up to 100%.
+- **Alert and anomaly scores** come from the detector. The average model score covers recorded supervised/hybrid ML alerts in the selected source and can include scores from earlier model versions. Scores are uncalibrated indicators, not verified probabilities or measured detection accuracy.
+- **Feature importances** describe the active model; held-out accuracy, weighted F1, and false-flag/attack-flag rates describe its evaluation dataset. They change when the model changes, not with each live flow. The bundled baseline uses synthetic data, not a real-world accuracy test.
+- Counts, category shares, and recorded scores refresh on WebSocket notifications and approximately every five seconds. They describe received records, not necessarily all traffic. Live capture requires an authorized running sensor; PCAP is offline, and a selected synthetic source reports generated flows.
 
-```text
-flow_duration
-packet_count
-byte_count
-iat_mean
-average_packet_size
-syn_count
-ack_count
-syn_ack_ratio
-```
+### Authorized live capture
 
-Train the included demo model:
+Only capture networks and interfaces you are authorized to monitor. Live mode observes what the selected interface can see; it does not magically see an entire network. It aggregates directional IPv4 TCP/UDP flows into short windows and sends features, not packet payloads, to Commander.
+
+- **Windows:** install Npcap, run the terminal with suitable capture permissions, and select the appropriate Scapy/Npcap interface.
+- **Linux:** grant the required packet-capture permissions or run the Sentinel with appropriate privileges. Do not grant firewall privileges merely to capture.
+- To list Scapy interfaces: `python -c "from scapy.all import show_interfaces; show_interfaces()"`.
 
 ```bash
-cd backend-api
-python train_model.py
+# From agent/ with the virtual environment active; replace the interface name.
+python agent.py --mode live --interface "YOUR_AUTHORIZED_INTERFACE"
 ```
 
-This performs:
+Windows/macOS capture behavior depends on local drivers and permissions and was not independently verified here. The bounded in-memory capture and send queues can drop data under load or during network outages; warnings are logged. See [operations and safety](docs/operations.md) before enabling a live sensor or enforcer.
 
-1. synthetic normal/malicious flow generation;
-2. a 70/30 train/test split;
-3. MinMax scaling;
-4. Random Forest training;
-5. accuracy/precision/recall/F1 reporting;
-6. model saving to `random_forest_model.joblib`.
+## Model evaluation and limitations
 
-A CSV with the same eight feature columns plus a `label` column can be used:
+The committed baseline is trained on **20,000 synthetic examples**, with 6,000 held-out synthetic examples. The metrics below are generated by the training script and also available in `backend/models/model_metrics.json` and the console. They are **not real-world accuracy**.
+
+| Measurement | Result | Scope |
+|---|---:|---|
+| Random Forest accuracy | 97.83% | Held-out synthetic examples |
+| Weighted F1 | 97.83% | Held-out synthetic examples |
+| Reference F1 | 97.20% | Separate synthetic seed, 2,500 examples |
+| Isolation Forest normal false-flag rate | 1.08% | Held-out synthetic normal examples |
+| Isolation Forest known-attack flag rate | 59.96% | Held-out synthetic attack examples; anomaly component only |
+
+A small Linux loopback smoke test of two benign HTTP requests produced four captured flow windows. An earlier baseline marked all four as anomalies; after adding short-flow examples to the synthetic baseline, the current model classified all four as normal. This tiny, correlated test is **not** an estimate of real false-positive or false-negative rates. Independent, labeled, representative traffic is essential before making operational decisions.
+
+A five-tuple flow summary cannot reliably establish credential abuse, a distributed scan, an application-layer attack, or a vulnerability. Encrypted content, traffic outside the sensor's view, non-IPv4 live traffic, evasion, packet loss, and changes in normal behavior can all limit detection. No detector can guarantee that every attack or unknown pattern will be detected.
+
+Retrain the baseline explicitly if desired:
 
 ```bash
-python train_model.py --data my_flows.csv
+cd backend
+python -m ml.train --rows 20000
 ```
 
-The default demo dataset is not the CIC-IDS-2017 dataset. Therefore, do not
-claim the paper's 98.4% accuracy unless you reproduce the CIC-IDS-2017
-experiment separately.
+Restart a native Commander process to load the regenerated artifact. A Compose model volume is separate and may retain an older artifact; back up any model before replacing it.
 
-## How the code works
+Only load model artifacts you trust: Joblib files can execute code during deserialization. The application does not upload external model files.
 
-### 1. Sentinel creates or captures a flow
+## Firewall and access-policy boundaries
 
-In simulation mode, `sniffer.py` creates simple examples:
+- `SIMULATE_BLOCK` is the default Commander mode; `ALERT_ONLY` disables automatic block-entry creation. Neither mode writes firewall rules. Manual entries can still be recorded in either mode.
+- A separate opt-in Linux enforcer uses iptables for eligible **IPv4** entries and supported policy rules. It needs `NET_ADMIN` and must be on the path of the traffic it is meant to affect. A recorded or simulated block is not proof of packet loss.
+- Synthetic, offline and unspecified automatic detections are not eligible for the current enforcer. Manual entries and captured-source entries can be eligible; a source label can be spoofed by an untrusted client. Loopback, unspecified, multicast, link-local and reserved addresses are excluded, but **not every address belonging to the host** is protected.
+- Trusted CIDRs must be IPv4 `/16` or IPv6 `/48` or narrower. Protected services and managed egress scopes must be private IPv4 `/24` or IPv6 `/64` or narrower. The optional enforcer supports only IPv4 and has additional limitations.
+- Use identity-aware VPN and MFA for employee access. CIDRs describe network location, not who the user is. A trusted source can still trigger an ML alert or an eligible block.
+
+Actual firewall changes and Kubernetes deployment were **not tested** in this environment. Read [operations and safety](docs/operations.md) for the opt-in lab, placement, cleanup, and security limitations.
+
+## Repository layout
 
 ```text
-Malicious flow:
-- many packets
-- small packet size
-- many SYN flags
-- few ACK flags
-- short inter-arrival time
-
-Normal flow:
-- fewer packets
-- larger packets
-- one SYN
-- many ACKs
-- longer inter-arrival time
+backend/app/          Commander API, SQLite, policy, models and PCAP analysis
+backend/ml/           Synthetic training pipeline
+backend/models/       Committed baseline artifact and synthetic metrics
+backend/tests/        Isolated API, policy, model and mocked enforcer tests
+agent/                Synthetic/live Sentinel and optional Linux enforcer
+frontend/             React console, Vite proxy, production web image
+lab/                  Optional containerized capture lab and opt-in overlay
+k8s/                  Illustrative single-replica Kubernetes manifests
+docs/                 Architecture, operations and safety guidance
 ```
 
-In live mode, Scapy reads packets and groups them using the five-tuple:
+`backend-api/`, `frontend-dashboard/`, and `sniffer-agent/` are the original educational implementation, retained as **legacy** code. The root Compose file and the instructions above use the new `backend/`, `frontend/`, and `agent/` components. There is no automatic migration of databases from the legacy implementation. On startup, the new Commander removes only its two exact, previously seeded starter policy entries; user-created and modified entries and historical events remain. Review your policy scopes after upgrading.
 
-```text
-source IP, destination IP, source port, destination port, protocol
-```
-
-Start live mode only on a Linux system or test container that you control:
+## Development checks
 
 ```bash
-sudo -E SNIFFER_MODE=live INTERFACE=eth0 python sniffer-agent/sniffer.py
+# From the repository root with .venv activated
+python -m pip install -r backend/requirements-dev.txt -r agent/requirements.txt
+cd backend && python -m pytest -q
+
+# In a separate terminal
+cd frontend && npm ci && npm run build
 ```
 
-### 2. Sentinel sends flow information
+For browser smoke tests, start Commander and the Vite dashboard against a **disposable database**, install a Playwright Chromium browser (`npx playwright install chromium`), then run `npm run test:browser` in `frontend/`. The test submits synthetic and unspecified-source flows. Setting `TEST_MUTATIONS=1` also uploads a small test PCAP and creates/removes a test policy entry. `TEST_LIFECYCLE=1` additionally trains, activates and rolls back a model: use a **disposable `MODEL_DIR` as well as a disposable database**. Never run these tests against an operational installation or an enabled enforcer.
 
-The agent sends JSON to:
+## Next steps
 
-```text
-POST /api/v1/flows/process
-```
+Useful extensions include authenticated and encrypted API access, durable queues and retention controls, representative labeled evaluation, correlation and incident cases, and ingestion of reports from an authorized vulnerability scanner. These are proposed work, not existing capabilities. See [architecture and detection](docs/architecture.md) for design and trade-offs.
 
-### 3. Backend creates the feature row
+### Background reading
 
-FastAPI converts the JSON into the same eight columns used during training.
-Using the same feature order during training and prediction is important.
+- [NIST SP 800-94: Guide to Intrusion Detection and Prevention Systems](https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=901146) — operational trade-offs, false positives and response practices.
+- [Verizon 2025 Data Breach Investigations Report overview](https://www.verizon.com/about/news/2025-data-breach-investigations-report) — context on diverse breach and initial-access patterns.
+- [A review of intrusion-detection approaches](https://www.mdpi.com/2073-431X/14/3/87) — background on signature and anomaly detection and their limitations.
 
-### 4. Random Forest predicts
-
-The model returns a malicious probability. The decision threshold is `0.75`:
-
-```text
-probability >= 0.75  -> Malicious
-probability <  0.75  -> Normal
-```
-
-### 5. Backend logs and responds
-
-The backend stores the event in:
-
-```text
-data/security_events.db
-```
-
-If traffic is malicious, it can attempt an `iptables` DROP rule when
-`FIREWALL_MODE=BLOCK_SOURCE_IP` is enabled. Keep `ALERT_ONLY` for normal demos.
-
-### 6. Dashboard displays alerts
-
-The React application polls:
-
-```text
-GET /api/v1/alerts
-GET /api/v1/summary
-```
-
-and displays the recent malicious flows, confidence, protocol, and action.
-
-## Kubernetes
-
-The canonical manifests are in `k8s/`:
-
-```text
-k8s/backend-deployment.yaml
-k8s/sniffer-daemonset.yaml
-k8s/frontend-deployment.yaml
-```
-
-Build images using the repository's Dockerfiles, replace the placeholder image
-names, and apply the files:
-
-```bash
-kubectl apply -f k8s/backend-deployment.yaml
-kubectl apply -f k8s/sniffer-daemonset.yaml
-kubectl apply -f k8s/frontend-deployment.yaml
-```
-
-The DaemonSet is the paper's cloud-native idea: one Sentinel pod per node.
-`hostNetwork` and raw-network capabilities are required for live capture, so
-use them only in a controlled cluster.
-
-## What this project honestly demonstrates
-
-This simplified version demonstrates the research architecture and workflow.
-It is not a reproduction of the paper's full large-scale experiment. The
-included model uses synthetic data for easy execution. CIC-IDS-2017 data,
-traffic replay, 1,000-flow latency testing, shared production storage, and
-secure cluster-wide firewall policy would be additional research work.
+These references motivate the design; they do not evaluate or endorse this prototype.

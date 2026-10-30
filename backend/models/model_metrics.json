@@ -1,0 +1,67 @@
+{
+  "source": "synthetic",
+  "model": "Random Forest",
+  "rows": 20000,
+  "train_rows": 14000,
+  "test_rows": 6000,
+  "accuracy": 0.9783333333333334,
+  "weighted_f1": 0.9783345563617108,
+  "reference_f1": 0.971999887999552,
+  "report": {
+    "Brute_Force": {
+      "precision": 1.0,
+      "recall": 0.9933333333333333,
+      "f1-score": 0.9966555183946488,
+      "support": 1200.0
+    },
+    "DDoS_SYN_Flood": {
+      "precision": 0.9463253509496284,
+      "recall": 0.955,
+      "f1-score": 0.9506428867689756,
+      "support": 1200.0
+    },
+    "Normal": {
+      "precision": 0.990916597853014,
+      "recall": 1.0,
+      "f1-score": 0.9954375777685608,
+      "support": 1200.0
+    },
+    "Port_Scan": {
+      "precision": 0.9545836837678722,
+      "recall": 0.9458333333333333,
+      "f1-score": 0.950188363331938,
+      "support": 1200.0
+    },
+    "UDP_Flood": {
+      "precision": 1.0,
+      "recall": 0.9975,
+      "f1-score": 0.9987484355444305,
+      "support": 1200.0
+    },
+    "accuracy": 0.9783333333333334,
+    "macro avg": {
+      "precision": 0.9783651265141028,
+      "recall": 0.9783333333333333,
+      "f1-score": 0.9783345563617107,
+      "support": 6000.0
+    },
+    "weighted avg": {
+      "precision": 0.9783651265141029,
+      "recall": 0.9783333333333334,
+      "f1-score": 0.9783345563617108,
+      "support": 6000.0
+    }
+  },
+  "anomaly": {
+    "normal_false_flag_rate": 0.010833333333333334,
+    "attack_flag_rate": 0.5995833333333334,
+    "threshold": 0.65
+  },
+  "classes": [
+    "Brute_Force",
+    "DDoS_SYN_Flood",
+    "Normal",
+    "Port_Scan",
+    "UDP_Flood"
+  ]
+}

@@ -1,49 +1,57 @@
+# Local control plane. Synthetic telemetry is an opt-in profile.
 services:
-  backend-api:
+  commander:
     build:
-      context: ./backend-api
-      dockerfile: Dockerfile.api
-    container_name: ids_backend
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
-    ports:
-      - "8000:8000"
     environment:
       DB_PATH: /data/security_events.db
-      FIREWALL_MODE: ALERT_ONLY
+      MODEL_DIR: /app/models
+      FIREWALL_MODE: ${FIREWALL_MODE:-SIMULATE_BLOCK}
+      COMMANDER_API_KEY: ${COMMANDER_API_KEY:-}
+      KNOWN_BLOCK_MINUTES: ${KNOWN_BLOCK_MINUTES:-60}
+      UNKNOWN_BLOCK_MINUTES: ${UNKNOWN_BLOCK_MINUTES:-30}
     volumes:
-      - ./data:/data
-    # Needed only if FIREWALL_MODE is changed to BLOCK_SOURCE_IP.
-    cap_add:
-      - NET_ADMIN
-
-  sniffer-agent:
-    build:
-      context: ./sniffer-agent
-      dockerfile: Dockerfile.sniffer
-    container_name: ids_sniffer
-    restart: unless-stopped
-    depends_on:
-      - backend-api
-    environment:
-      BACKEND_URL: http://backend-api:8000/api/v1/flows/process
-      SNIFFER_MODE: simulate
-      FIREWALL_MODE: ALERT_ONLY
-    # Required only if live capture or iptables blocking is enabled.
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-
-  frontend-dashboard:
-    build:
-      context: ./frontend-dashboard
-      dockerfile: Dockerfile
-    container_name: ids_dashboard
-    restart: unless-stopped
-    depends_on:
-      - backend-api
+      - ids_data:/data
+      - ids_models:/app/models
     ports:
-      - "3000:80"
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
-networks:
-  default:
-    name: ids-network
+  dashboard:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      commander:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:80"
+
+  sentinel:
+    profiles: [synthetic]
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      commander:
+        condition: service_healthy
+    environment:
+      AGENT_MODE: synthetic
+      AGENT_ID: sentinel-synthetic
+      COMMANDER_API_URL: http://commander:8000/api/v1/flows/process
+      COMMANDER_API_KEY: ${COMMANDER_API_KEY:-}
+      ENFORCE_BLOCKLIST: "false"
+      ENFORCE_ACCESS_POLICY: "false"
+
+volumes:
+  ids_data:
+  ids_models:

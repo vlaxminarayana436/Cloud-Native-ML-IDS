@@ -1,0 +1,41 @@
+# Add with -f lab/docker-compose.lab.yml --profile lab. No enforcement by default.
+services:
+  lab-target:
+    image: python:3.11-slim
+    profiles: [lab]
+    command: ["python", "-m", "http.server", "8080", "--bind", "0.0.0.0"]
+    networks: [default, lab_net]
+
+  lab-probe:
+    image: python:3.11-slim
+    profiles: [lab]
+    depends_on: [lab-target]
+    command: ["python", "-u", "/lab/probe.py"]
+    volumes:
+      - ./lab/probe.py:/lab/probe.py:ro
+    networks: [lab_net]
+
+  lab-sentinel:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    profiles: [lab]
+    network_mode: service:lab-target
+    depends_on:
+      commander:
+        condition: service_healthy
+      lab-target:
+        condition: service_started
+    cap_add: [NET_RAW]
+    environment:
+      AGENT_MODE: live
+      AGENT_ID: sandbox-live
+      COMMANDER_API_URL: http://commander:8000/api/v1/flows/process
+      COMMANDER_API_KEY: ${COMMANDER_API_KEY:-}
+      CAPTURE_INTERFACE: ${LAB_CAPTURE_INTERFACE:-eth0}
+      ENFORCE_BLOCKLIST: "false"
+      ENFORCE_ACCESS_POLICY: "false"
+
+networks:
+  lab_net:
+    internal: true
