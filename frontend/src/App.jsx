@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import FlowReview from './FlowReview'
 import {
-  Activity, ArrowRight, BrainCircuit, Check, ChevronDown, CircleHelp,
+  Activity, ArrowRight, BrainCircuit, Check, ChevronDown, CircleHelp, ClipboardCheck,
   Cpu, Database, Download, Eye, FileUp, Filter, Globe2, LayoutDashboard,
   LockKeyhole, Network, Plus, Radio, RefreshCw, Search, Shield,
   ShieldAlert, ShieldCheck, ShieldOff, SlidersHorizontal, Trash2, TriangleAlert, X,
@@ -15,6 +16,7 @@ const nav = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'traffic', label: 'Traffic analysis', icon: Activity },
   { id: 'alerts', label: 'Alert feed', icon: ShieldAlert },
+  { id: 'review', label: 'Flow review', icon: ClipboardCheck },
   { id: 'pcap', label: 'PCAP analysis', icon: FileUp },
   { id: 'policy', label: 'Access policy', icon: Network },
   { id: 'adaptive', label: 'Adaptive learning', icon: BrainCircuit },
@@ -228,7 +230,7 @@ function Alerts({ data }) {
   const term = query.trim().toLowerCase()
   const alerts = (data.alerts || []).filter((event) => (kind === 'all' || (kind === 'ml' ? event.classification === 'Malicious' : event.classification === 'Policy_Denied')) && [event.src_ip, event.dst_ip, human(event.attack_type), event.agent_id].some((v) => String(v ?? '').toLowerCase().includes(term)))
   return <section id="alerts" className="section-anchor section-block"><SectionHeading eyebrow="INVESTIGATION" title="Alert feed" text="ML detections and access-policy decisions." action={<button className="button secondary" type="button" disabled={!alerts.length} onClick={() => downloadAlerts(alerts)}><Download size={15} /> Export CSV</button>} />
-    <div className="card table-card"><div className="table-toolbar"><div><h3>Recent alerts</h3><p>Most recent 100 alerts · filters apply to export</p></div><div className="table-filters"><label className="search-input"><Search size={15} /><span className="sr-only">Search alerts</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search IP, type or sensor" /></label><label className="mini-select"><span className="sr-only">Alert type</span><select value={kind} onChange={(e) => setKind(e.target.value)}><option value="all">All types</option><option value="ml">ML detection</option><option value="policy">Policy only</option></select><ChevronDown size={14} /></label></div></div>
+    <div className="card table-card"><div className="table-toolbar"><div><h3>Recent alerts</h3><p>Most recent 100 alerts · filters apply · CSV includes IP addresses</p></div><div className="table-filters"><label className="search-input"><Search size={15} /><span className="sr-only">Search alerts</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search IP, type or sensor" /></label><label className="mini-select"><span className="sr-only">Alert type</span><select value={kind} onChange={(e) => setKind(e.target.value)}><option value="all">All types</option><option value="ml">ML detection</option><option value="policy">Policy only</option></select><ChevronDown size={14} /></label></div></div>
       {alerts.length ? <div className="table-scroll alert-table-scroll"><table><thead><tr><th>TIME</th><th>DETECTION</th><th>SOURCE → DESTINATION</th><th>ORIGIN</th><th>RESPONSE</th><th>SCORE</th></tr></thead><tbody>{alerts.map((event) => <tr key={event.id}><td className="muted nowrap" title={new Date(event.timestamp * 1000).toLocaleString()}>{relative(event.timestamp)}</td><td><strong>{human(event.attack_type)}</strong><small>{event.classification === 'Policy_Denied' ? 'Policy decision' : human(event.detection_source)}</small></td><td className="address-cell"><strong>{event.src_ip}</strong><small>→ {event.dst_ip}{event.dst_port ? `:${event.dst_port}` : ''}</small></td><td><Badge>{sourceLabel(event.traffic_source)}</Badge></td><td><Badge tone={event.action === 'BLOCKED_SIMULATED' ? 'amber' : event.action === 'POLICY_DENY_RECORDED' ? 'purple' : 'neutral'}>{human(event.action)}</Badge></td><td>{['access_policy', 'learned_pattern'].includes(event.detection_source) ? '—' : percent(event.confidence)}</td></tr>)}</tbody></table></div> : <div className="alert-table-empty"><Empty icon={Eye} title="Nothing to review here" detail={query || kind !== 'all' ? 'Try a different filter.' : 'Alerts will appear as suspicious activity is recorded.'} /></div>}
       <div className="table-foot"><span>Showing {count(alerts.length)} of {count((data.alerts || []).length)} loaded alerts</span><span>Scores are uncalibrated, not accuracy</span></div>
     </div>
@@ -410,7 +412,7 @@ export default function App() {
   }
   return <div className="app-shell"><Sidebar active={active} goTo={goTo} connected={connected} /><main className="main"><div className="content">
     {!connected && <div className="connection-warning" role="status"><TriangleAlert size={16} /> Commander is unavailable. Start the API to load current data.</div>}
-    <Overview data={data} source={source} setSource={setSource} /><Traffic data={data} onAction={onAction} /><Alerts data={data} /><Pcap onAction={onAction} onViewAlerts={() => { setSource('pcap'); goTo('alerts') }} /><Policy data={data} onAction={onAction} /><Adaptive data={data} source={source} onAction={onAction} /><ModelHealth data={data} onAction={onAction} />
+    <Overview data={data} source={source} setSource={setSource} /><Traffic data={data} onAction={onAction} /><Alerts data={data} /><FlowReview key={source} source={source} onAction={onAction} /><Pcap onAction={onAction} onViewAlerts={() => { setSource('pcap'); goTo('alerts') }} /><Policy data={data} onAction={onAction} /><Adaptive data={data} source={source} onAction={onAction} /><ModelHealth data={data} onAction={onAction} />
     <footer className="page-footer"><span>Cloud-Based Network Packet Sniffer with Integrated Machine Learning and Firewall Security</span></footer>
   </div></main>{toast && <div className={`toast ${toast.ok ? 'success' : 'error'}`} role="status">{toast.ok ? <Check size={17} /> : <TriangleAlert size={17} />}<span>{toast.text}</span><button type="button" aria-label="Dismiss notification" onClick={() => setToast(null)}><X size={15} /></button></div>}{keyPrompt && <KeyRequestDialog invalid={keyPrompt.invalid} onSubmit={resolveApiKey} onCancel={() => resolveApiKey('')} />}</div>
 }

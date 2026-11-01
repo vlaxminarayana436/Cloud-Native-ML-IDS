@@ -4,6 +4,7 @@ import asyncio
 import csv
 import io
 import json
+import math
 import os
 import random
 import secrets
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Literal
 import joblib
 import pandas as pd
-from fastapi import Depends,FastAPI,File,Header,HTTPException,UploadFile,WebSocket,WebSocketDisconnect
+from fastapi import Depends,FastAPI,File,Header,HTTPException,Query,UploadFile,WebSocket,WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from . import db
 from .access import evaluate
@@ -26,9 +27,11 @@ from .config import API_KEY,FIREWALL_MODE,KNOWN_BLOCK_MINUTES,UNKNOWN_BLOCK_MINU
 from .features import BASE_FEATURES,profile
 from .model import ModelService,validate_artifact
 from .pcap import extract_flows
-from .schemas import Approval,Block,Flow,Heartbeat,Network,PolicySettings,Resource,Toggle
+from .schemas import Approval,Block,EventReview,Flow,Heartbeat,Network,PolicySettings,Resource,Toggle
 
 TrafficSource=Literal['all','capture','synthetic','pcap','unknown']
+ReviewDetection=Literal['all','alerts','normal']
+ReviewStatus=Literal['all','unreviewed','reviewed','benign','malicious','unsure']
 model=ModelService();clients=set();app_loop=None;training_lock=threading.Lock()
 training_state={'state':'idle','error':None,'started_at':None,'finished_at':None,'metrics':None,'traffic_source':None}
 
@@ -92,6 +95,44 @@ async def heartbeat(item:Heartbeat):
 def summary(source:TrafficSource='all'): return db.summary(source)
 @app.get('/api/v1/events')
 def events(limit:int=200,source:TrafficSource='all'): return db.events(source=source,limit=limit)
+
+@app.get('/api/v1/reviews')
+def flow_reviews(source:TrafficSource='all',detection:ReviewDetection='alerts',status:ReviewStatus='unreviewed',before_id:int|None=Query(default=None,ge=1),limit:int=Query(default=20,ge=1,le=100)):
+    return db.review_events(source,detection,status,before_id,limit)
+
+@app.get('/api/v1/reviews/export.csv')
+def export_review_features(source:TrafficSource='all',detection:ReviewDetection='alerts',status:ReviewStatus='unreviewed'):
+    # This is an explicit allowlist: the stored flow JSON also contains IPs,
+    # ports, timestamps and an agent ID, none of which belong in this export.
+    fields=['traffic_source','prediction','detector','protocol','from_port_443','to_port_443','anomaly_score',*BASE_FEATURES,'analyst_label']
+    output=io.StringIO();writer=csv.DictWriter(output,fieldnames=fields);writer.writeheader()
+    page=db.review_events(source,detection,status,limit=1000)
+    def number(value):
+        return value if isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value) else ''
+    for event in page['items']:
+        features=event['features'] if isinstance(event['features'],dict) else {}
+        row={'traffic_source':event['traffic_source'] if event['traffic_source'] in {'capture','synthetic','pcap','unknown'} else 'unknown',
+             'prediction':event['classification'] if event['classification'] in {'Normal','Malicious','Policy_Denied'} else 'Other',
+             'detector':event['detection_source'] if event['detection_source'] in {'supervised','anomaly','hybrid','learned_pattern','access_policy'} else 'other',
+             'protocol':event['protocol'] if event['protocol'] in {'TCP','UDP'} else 'OTHER',
+             'from_port_443':event['src_port']==443,'to_port_443':event['dst_port']==443,
+             'anomaly_score':number(event['anomaly_score']),
+             'analyst_label':event['review']['label'] if event['review'] else ''}
+        row.update({name:number(features.get(name)) for name in BASE_FEATURES})
+        writer.writerow(row)
+    return StreamingResponse(iter([output.getvalue()]),media_type='text/csv',headers={'Content-Disposition':'attachment; filename=flow-features.csv','X-Export-Truncated':str(page['has_more']).lower()})
+
+@app.put('/api/v1/events/{event_id}/review',dependencies=[Depends(require_key)])
+async def save_event_review(event_id:int,item:EventReview):
+    result=await asyncio.to_thread(db.put_event_review,event_id,item.label,item.note)
+    if result is None: raise HTTPException(404,'Flow record not found')
+    await broadcast({'type':'event_review'});return {'status':'saved','review':result}
+
+@app.delete('/api/v1/events/{event_id}/review',dependencies=[Depends(require_key)])
+async def remove_event_review(event_id:int):
+    if not await asyncio.to_thread(db.clear_event_review,event_id): raise HTTPException(404,'Review not found')
+    await broadcast({'type':'event_review'});return {'status':'removed'}
+
 @app.get('/api/v1/alerts')
 def alerts(attack_type:str|None=None,src_ip:str|None=None,min_confidence:float|None=None,limit:int=100,source:TrafficSource='all'): return db.events(source,True,attack_type,src_ip,min_confidence,limit)
 @app.get('/api/v1/alerts/export.csv')

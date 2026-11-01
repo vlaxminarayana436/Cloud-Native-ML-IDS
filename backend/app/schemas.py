@@ -72,6 +72,14 @@ class PolicySettings(BaseModel):
         return self
 
 class Toggle(BaseModel): enabled:bool
+
+class EventReview(BaseModel):
+    label:Literal['benign','malicious','unsure']
+    note:str=Field(default='',max_length=500)
+    @field_validator('note')
+    @classmethod
+    def clean_note(cls,value): return value.strip()
+
 class Approval(BaseModel):
     label:str=Field(min_length=2,max_length=80)
     @field_validator('label')

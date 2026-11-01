@@ -25,7 +25,7 @@ try {
   await page.getByText('Commander connected').waitFor({ timeout: 15000 })
   assert.equal(await page.title(), 'Cloud-Native ML-IDS · Security Console')
   assert.equal(await page.locator('h1').innerText(), 'Security overview')
-  assert.equal(await page.locator('.sidebar').getByRole('button').count(), 7, 'Only section links should appear in the sidebar')
+  assert.equal(await page.locator('.sidebar').getByRole('button').count(), 8, 'Only section links should appear in the sidebar')
   assert.equal(await page.locator('.sidebar').getByRole('button', { name: /scroll|api key/i }).count(), 0, 'No motion or API-key controls')
   assert.equal(await page.evaluate(() => localStorage.getItem('ids-scroll-preference')), 'off')
   const visibleText = (await page.locator('body').innerText()).toLowerCase()
@@ -137,7 +137,7 @@ try {
   }
   console.log('Passed displayed percentage calculations and event-driven refresh')
 
-  for (const [label, id] of [['Overview','overview'], ['Traffic analysis','traffic'], ['Alert feed','alerts'], ['PCAP analysis','pcap'], ['Access policy','policy'], ['Adaptive learning','adaptive'], ['Model & health','model']]) {
+  for (const [label, id] of [['Overview','overview'], ['Traffic analysis','traffic'], ['Alert feed','alerts'], ['Flow review','review'], ['PCAP analysis','pcap'], ['Access policy','policy'], ['Adaptive learning','adaptive'], ['Model & health','model']]) {
     const start = await page.evaluate(() => window.scrollY)
     await page.getByRole('button', { name: label, exact: true }).click()
     await page.waitForTimeout(240)

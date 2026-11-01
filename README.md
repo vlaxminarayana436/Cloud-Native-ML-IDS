@@ -9,9 +9,9 @@ A local-first, cloud-native **network monitoring and analyst review prototype**.
 - **Collects flow summaries** from a synthetic Sentinel, an authorized live IPv4 capture interface, or an uploaded PCAP. The dashboard keeps those sources distinguishable.
 - **Applies two detection approaches:** a Random Forest for several synthetic known-pattern classes and an Isolation Forest for unusual flow characteristics. An anomaly is a signal for investigation, not proof of a zero-day attack.
 - **Separates policy and attack decisions.** Narrow trusted office/VPN networks and protected internal services can be monitored or evaluated for denial; trusted traffic is still inspected by ML. IP addresses are not employee identities.
-- **Supports analyst feedback.** Review anomaly candidates, approve source-scoped learned rules, train a candidate with feedback, inspect its evaluation, and activate or roll back the model.
+- **Supports two distinct review workflows.** Record an individual flow as benign, malicious, or unsure without changing detection or blocking. Separately, analysts can approve anomaly candidates as source-scoped learned rules, train a candidate with that pattern feedback, and activate or roll back the model.
 - **Records response entries** with source and eligibility information. An optional IPv4 enforcer can apply eligible entries or supported access-policy rules only when it is deliberately enabled and positioned on the traffic path.
-- **Provides a monitoring console** with source filters, event trends, alerts and CSV export, blocklist management, offline PCAP analysis, policy controls, and model health. Sidebar navigation smoothly scrolls the page to each section.
+- **Provides a monitoring console** with source filters, event trends, alerts, a privacy-conscious flow-feature export, blocklist management, offline PCAP analysis, policy controls, and model health. Sidebar navigation smoothly scrolls the page to each section.
 
 ```text
  Synthetic / live Sentinel ──┐
@@ -90,10 +90,14 @@ Stop each process with `Ctrl+C`. Native runs store the SQLite database in `backe
 ## Using the console
 
 1. Choose **Synthetic**, **Live capture**, **Offline PCAP**, or **All sources** from the source selector. These are reported labels, not cryptographically verified provenance.
-2. Inspect the overview and alert feed. Counts refer to stored **flows**, not individual packets; the displayed model scores are uncalibrated and are not accuracy measurements. The dashboard CSV export contains the currently filtered rows among the latest 100 loaded alerts.
-3. Upload a `.pcap`, `.pcapng`, or `.cap` under **PCAP analysis**. Supported IPv4 TCP/UDP flows are analyzed offline and never create live block entries. Limits: 25 MiB, 200,000 packets and 5,000 distinct flows.
-4. Under **Access policy**, add authorized networks and protected services. A new installation starts with no configured scopes. Monitor mode records would-deny decisions. Deny mode records policy decisions; it does not itself install a firewall rule.
-5. Review anomaly candidates under **Adaptive learning**. Approval creates a source-scoped rule and feedback example; candidate training and activation are separate actions. A candidate's augmented feedback can overlap its evaluation split, so its metrics can be optimistic.
+2. Inspect the overview and alert feed. Counts refer to stored **flows**, not individual packets; displayed model scores are uncalibrated and are not accuracy measurements. The alert-feed CSV contains the currently filtered rows among the latest 100 loaded alerts, including IP addresses.
+3. Open **Flow review** to assess individual records. Filter alerts or normal predictions, click **Review**, and select **Benign**, **Malicious**, or **Unsure**. Use **Unsure** when evidence is insufficient; a model prediction or ordinary browsing alone is not a verified label. A note is optional. You can edit or clear a review later. The list is a stable snapshot; use **Refresh list** for newer flows and **Older/Newer** to navigate.
+4. To share limited diagnostics, use **Export features** in Flow review. It downloads up to the newest 1,000 matching records across the selected source and filters, including numeric flow features, predictions and any analyst assessments. It omits IP addresses, raw port numbers, agent/event IDs, timestamps, hostnames and notes; it does include coarse indicators for whether either port was 443. This is still traffic metadata and can be sensitive. The export reports when additional matching rows were omitted. It lacks session grouping and is not by itself an independent evaluation dataset.
+5. Upload a `.pcap`, `.pcapng`, or `.cap` under **PCAP analysis**. Supported IPv4 TCP/UDP flows are analyzed offline and never create live block entries. Limits: 25 MiB, 200,000 packets and 5,000 distinct flows.
+6. Under **Access policy**, add authorized networks and protected services. A new installation starts with no configured scopes. Monitor mode records would-deny decisions. Deny mode records policy decisions; it does not itself install a firewall rule.
+7. **Adaptive learning** is separate from Flow review. Approving an anomaly candidate creates a source-scoped rule and feedback example; it is not a way to mark a flow benign. Candidate training and activation are separate actions. A candidate's augmented feedback can overlap its evaluation split, so its metrics can be optimistic.
+
+Flow reviews are stored in the existing SQLite database but do **not** alter the original prediction, create rules or blocks, suppress future alerts, or feed the current retraining pipeline. They are human assessments, not automatically verified ground truth. Updating creates the review table on startup without replacing existing events. Back up your database and models before upgrades; reviews store only the latest assessment and do not provide audit-grade identity or history.
 
 ### Understanding dashboard percentages
 

@@ -23,6 +23,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS patterns_source_status ON patterns(traffic_source,status);
         CREATE TABLE IF NOT EXISTS learned_rules (id INTEGER PRIMARY KEY AUTOINCREMENT,pattern_id INTEGER UNIQUE NOT NULL,name TEXT NOT NULL,protocol TEXT NOT NULL,criteria TEXT NOT NULL,enabled INTEGER NOT NULL,created_at REAL NOT NULL,FOREIGN KEY(pattern_id) REFERENCES patterns(id));
         CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCREMENT,pattern_id INTEGER UNIQUE NOT NULL,label TEXT NOT NULL,features TEXT NOT NULL,created_at REAL NOT NULL,FOREIGN KEY(pattern_id) REFERENCES patterns(id));
+        -- Per-flow assessments are separate from learned-pattern feedback.
+        -- Creating this table preserves existing events and databases on upgrade.
+        CREATE TABLE IF NOT EXISTS event_reviews (event_id INTEGER PRIMARY KEY,label TEXT NOT NULL CHECK(label IN ('benign','malicious','unsure')),note TEXT NOT NULL DEFAULT '',reviewed_at REAL NOT NULL,FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE);
+        CREATE INDEX IF NOT EXISTS event_reviews_label ON event_reviews(label,event_id);
         CREATE TABLE IF NOT EXISTS agent_heartbeats (agent_id TEXT PRIMARY KEY,traffic_source TEXT NOT NULL,interface TEXT,last_seen REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS policy_settings (id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL,mode TEXT NOT NULL,egress_enabled INTEGER NOT NULL,egress_cidrs TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS trusted_networks (id INTEGER PRIMARY KEY AUTOINCREMENT,label TEXT NOT NULL,cidr TEXT UNIQUE NOT NULL,kind TEXT NOT NULL,enabled INTEGER NOT NULL,source TEXT NOT NULL,created_at REAL NOT NULL);
@@ -55,6 +59,60 @@ def events(source='all',alerts=False,attack_type=None,src_ip=None,min_confidence
     if src_ip: clause+=' AND src_ip LIKE ?';args.append(f'%{src_ip}%')
     if min_confidence is not None: clause+=" AND detection_source NOT IN ('access_policy','learned_pattern') AND confidence>=?";args.append(min_confidence)
     with connect() as db: return [event_row(row) for row in db.execute('SELECT * FROM events WHERE 1=1'+clause+' ORDER BY timestamp DESC,id DESC LIMIT ?',(*args,max(1,min(1000,limit))))]
+
+def review_events(source='all',detection='alerts',status='unreviewed',before_id=None,limit=20):
+    """Return a stable, newest-ingested-first page of individual flow reviews.
+
+    The summary covers every record in the selected source, independently of
+    the page and the detection/review filters. Reviews never alter events.
+    """
+    if detection not in {'all','alerts','normal'}: raise ValueError('Invalid detection filter')
+    if status not in {'all','unreviewed','reviewed','benign','malicious','unsure'}: raise ValueError('Invalid review filter')
+    clause,args=source_clause(source,'e.traffic_source')
+    if detection=='alerts': clause+=" AND e.classification IN ('Malicious','Policy_Denied')"
+    elif detection=='normal': clause+=" AND e.classification='Normal'"
+    if status=='unreviewed': clause+=' AND r.event_id IS NULL'
+    elif status=='reviewed': clause+=' AND r.event_id IS NOT NULL'
+    elif status in {'benign','malicious','unsure'}: clause+=' AND r.label=?';args.append(status)
+    if before_id is not None: clause+=' AND e.id<?';args.append(before_id)
+    limit=max(1,min(1000,int(limit)))
+    with connect() as conn:
+        # Keep the page and its source-wide counts on the same SQLite snapshot
+        # even while the live sensor is inserting new flows.
+        conn.execute('BEGIN')
+        rows=conn.execute('''SELECT e.*,r.label AS review_label,r.note AS review_note,r.reviewed_at AS review_time
+            FROM events e LEFT JOIN event_reviews r ON r.event_id=e.id
+            WHERE 1=1'''+clause+' ORDER BY e.id DESC LIMIT ?',(*args,limit+1)).fetchall()
+        summary_clause,summary_args=source_clause(source,'e.traffic_source')
+        summary=dict(conn.execute('''SELECT COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN r.event_id IS NULL THEN 1 ELSE 0 END),0) AS unreviewed,
+            COALESCE(SUM(CASE WHEN r.label='benign' THEN 1 ELSE 0 END),0) AS benign,
+            COALESCE(SUM(CASE WHEN r.label='malicious' THEN 1 ELSE 0 END),0) AS malicious,
+            COALESCE(SUM(CASE WHEN r.label='unsure' THEN 1 ELSE 0 END),0) AS unsure
+            FROM events e LEFT JOIN event_reviews r ON r.event_id=e.id WHERE 1=1'''+summary_clause,summary_args).fetchone())
+    items=[]
+    for row in rows[:limit]:
+        item=event_row(row)
+        label=item.pop('review_label');note=item.pop('review_note');reviewed_at=item.pop('review_time')
+        item['review']={'label':label,'note':note,'reviewed_at':reviewed_at} if label is not None else None
+        items.append(item)
+    has_more=len(rows)>limit
+    return {'items':items,'has_more':has_more,'next_before_id':items[-1]['id'] if has_more else None,'summary':summary}
+
+
+def put_event_review(event_id,label,note=''):
+    if label not in {'benign','malicious','unsure'}: raise ValueError('Invalid assessment')
+    with connect() as conn:
+        if not conn.execute('SELECT 1 FROM events WHERE id=?',(event_id,)).fetchone(): return None
+        now=time.time()
+        conn.execute('''INSERT INTO event_reviews(event_id,label,note,reviewed_at) VALUES (?,?,?,?)
+            ON CONFLICT(event_id) DO UPDATE SET label=excluded.label,note=excluded.note,reviewed_at=excluded.reviewed_at''',(event_id,label,note,now))
+    return {'event_id':event_id,'label':label,'note':note,'reviewed_at':now}
+
+
+def clear_event_review(event_id):
+    with connect() as conn: return bool(conn.execute('DELETE FROM event_reviews WHERE event_id=?',(event_id,)).rowcount)
+
 
 def enforcement_reason(row):
     try: addr=ipaddress.ip_address(row['ip'])
